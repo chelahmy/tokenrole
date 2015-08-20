@@ -3,6 +3,7 @@
 
 ## How does it work?
 ![tokenrole-diagram](http://camar.xyz/sites/all/modules/tokenrole/tokenrole-diagram.png)
+
 A user will sign in into Drupal and enter a sub-system from within Drupal. The sub-system is integrated seemlessly into Drupal where the user will barely notice. Drupal will send a user access token to the sub-system, which in turn will be used by the sub-system to query Drupal for the user's roles. The sub-system will refer to the assigned roles to limit the user access into itself. Usually the sub-system will implement access permission by roles.
 
 The Token-Role Access Control module was initially implemented to allow Drupal integration with [Camar](http://camar.xyz) Maps and WMS.
