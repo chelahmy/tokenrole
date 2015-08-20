@@ -1,0 +1,4 @@
+name = Token-Role Access Control
+description = Sub-system access control extension
+core = 7.x
+configure = admin/config/services/tokenrole
