@@ -1,0 +1,51 @@
+<?php
+// tokenrole.install
+// By Abdullah Daud
+// 29 May 2015
+
+/**
+* hook_schema()
+*/
+function tokenrole_schema()
+{
+	// NOTE: Ensure that field name is fully lowercase.
+	//       Because Drupal db read will make all fields fully lowercase.
+	
+	$schema['tokenrole_usertoken'] = array(
+		'description' => "The user token",
+		'fields' => array(
+			'id' => array(
+				'description' => 'The primary identifier for the record',
+				'type' => 'serial',
+				'not null' => TRUE,
+				),
+			'uid' => array(
+				'description' => "The user ID",
+				'type' => 'int',
+				'not null' => TRUE,
+				'default' => 0,
+				),
+			'token' => array(
+				'description' => "The token",
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => TRUE,
+				'default' => '',
+				),
+			'valid_thru' => array(
+				'description' => "The validity period",
+				'type' => 'int',
+				'not null' => TRUE,
+				'default' => 0,
+				),
+			
+			),
+		'primary key' => array('id'),
+		'indexes' => array(
+			'uid' => array('uid'),
+			'token' => array('token'),
+			),
+		);
+				
+	return $schema;
+}
