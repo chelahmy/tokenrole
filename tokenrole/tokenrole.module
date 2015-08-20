@@ -1,0 +1,519 @@
+<?php
+// tokenrole.module
+// By Abdullah Daud
+// 29 May 2015
+
+/**
+* @file
+* tokenrole - Token-Role Access Control
+*/
+
+/**
+ * Implements hook_permission()
+ */
+function tokenrole_permission() 
+{
+	return array(
+		'configure settings' =>  array(
+			'title' => t('Configure settings'),
+		),
+		'get token' =>  array(
+			'title' => t('Get token'),
+		),
+		'get token roles' =>  array(
+			'title' => t('Get token roles'),
+		),
+		'authenticate' =>  array(
+			'title' => t('Authenticate a user'),
+		),
+	);
+}
+
+/**
+* Menu callback to test that the id is not an empty string.
+* The menu will be shown when it doesn't return FALSE.
+*/
+function _tokenrole_param_load($id)
+{
+	if (strlen($id) <= 0)
+		return FALSE;
+	
+	return $id;
+}
+
+/**
+* Implements hook_menu()
+*/	
+function tokenrole_menu() 
+{
+	$items['admin/config/services/tokenrole'] = array(
+		'title' => 'Token-Role Access Control settings',
+		'description' => 'Configure the token validity period and the role prefix.',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('tokenrole_settings_form'),
+		'access arguments' => array('configure settings'),
+		'type' => MENU_NORMAL_ITEM,
+		);
+
+	$items['tokenrole/gettoken'] = array(
+		'type' => MENU_CALLBACK,
+		'page callback' => 'tokenrole_gettoken2',
+		'access arguments' => array('get token'),
+		);
+		
+	$items['tokenrole/getroles/%_tokenrole_param'] = array(
+		'type' => MENU_CALLBACK,
+		'page callback' => 'tokenrole_getroles2',
+		'page arguments' => array(2),
+		'access arguments' => array('get token roles'),
+		);
+
+	$items['tokenrole/authenticate/%_tokenrole_param/%_tokenrole_param'] = array(
+		'type' => MENU_CALLBACK,
+		'page callback' => 'tokenrole_authenticate',
+		'page arguments' => array(2, 3),
+		'access arguments' => array('authenticate'),
+		);
+
+	return $items;	
+}
+
+/**
+ * Implements hook_help().
+ */
+function tokenrole_help($path, $arg)
+{
+	switch ($path) 
+	{
+		case 'admin/help#tokenrole':
+			return _tokenrole_information();
+	}
+}
+
+function _tokenrole_information()
+{
+	return t("<p>Token-Role Access Control allows a sub-system without a user management facility to implement a role-based access control.
+		The sub-system needs only to manage its operations by roles. The specific user roles will be given by the main system which in
+		this case will be the Drupal user roles. The sub-system itself doesn't need to know the Drupal user's details.</p>
+		
+		!image
+		
+		<h3>How it works?</h3>
+		
+		<p>In the subsequent context, the <em>main system</em> is referring to this Drupal installation. Assuming a user logged in to the
+		main system. Upon the user request, the main system will send the user access token to the sub-system which, in turn, will use the
+		token to query back the main system for the user's roles. The sub-system will use the roles to manage access. The sub-system must
+		use this URI !getroles to query the main system for the user roles. Replace the <em>[user-access-token]</em> with the given access
+		token. The getroles URI should be kept hidden and write protected.</p>
+		
+		<p>The main system will respond with the user roles in a JSON encoded string. The following is an example of the response:</p>
+		
+		<p><strong><em>{\"status\":1,\"roles\":[\"authenticated user\",\"administrator\"]}</em></strong></p>
+		
+		<p>The <em>\"status\": 1</em> indicates that the query is successful, otherwise it will be 0. A Drupal user may have more than one role.</p>
+		
+		<h3>The <em>[user-access-token]</em> filter</h3>
+		
+		<p>The Token-Role Access Control also implements the <em>[user-access-token]</em> filter which will be substituted with the current user access token.
+		The configuration is done through !textformat. Choose a text format and configure it to include the filter.</p>
+		
+		<h4>Example</h4>
+		
+		<p>Adding a user access token to an URL. Make sure the <em>[user-access-token]</em> filter is enabled. The following is an example URL:</p>
+		
+		<p><em>http://example.com?passkey=[user-access-token]</em></p>
+		
+		<p>The above URL will be expanded with the user access token which is assigned to the <em>passkey</em> argument. The sub-system at
+		<em>example.com</em> will use the token to query the main system for the user's roles. Passing the user's roles directly on the URL is not safe.</p>
+		
+		<h3>Active Sub-system</h3>
+		
+		<p>The sub-system mentioned above is passive. It is always in the state of waiting for a request with a user access token. On the other hand, an active
+		sub-sytem will request the main system for the user access token. The request must be accompanied with the user credentials.</p>
+		
+		<p>Use this URI !authenticate to authenticate a user. Replace the <em>[username]</em> and <em>[password]</em> accordingly. The main system will
+		respond with the user's token and roles. The following is an example of the response:</p>
+		<p><strong><em>
+		{\"status\":1,\"token\":\"YgzhxJDaJ1axnPmIOjtdq5eWVrygeCWudBgmxJiIIyMMjD0j6gZERUrGN3R7WiUw\",\"roles\":[\"authenticated user\",\"map viewer\"]}
+		</em></strong></p>
+		
+		<p>The token is the long non-worded string.</p>
+		
+		<p><strong>Warning:</strong> The active sub-system approach will require the user to surrender his main system credentials to the sub-system. 
+		Thus, the sub-system must be trusted.</p>
+		
+		<h3>Role subset</h3>
+		
+		<p>It will be safer if the sub-system does not involve with the entire main system user roles. The solution is to define only a subset of roles by
+		prepending the elected roles with a prefix. The role prefix can be defined in the !settings. The prefix is optional.</p>
+		
+		<p>Important user roles such as the administrator should
+		be kept hidden from the sub-system.</p>
+		
+		<h3>For developer</h3>
+		
+		<p><em>function <strong>tokenrole_gettoken(\$uid = 0)</strong></em></p>
+		
+		<p>The <em>tokenrole_gettoken()</em> function will return the current user access token, or FALSE. It is the same function used in the 
+		<em>[user-access-token]</em> filter.</p>
+		
+		<p>The user id \$uid parameter is optional. If it is not specified then the current user id will be used.</p>
+		
+		<p><em>function <strong>tokenrole_getuserid(\$token)</strong></em></p>
+		
+		<p>The <em>tokenrole_getuserid()</em> function will return the user id for the \$token. Otherwise, it will return a negative value indicating
+		the error: -1 invalid token, -2 expired token.</p>
+		
+		<p><em>function <strong>tokenrole_getroles(\$token)</strong></em></p>
+		
+		<p>The <em>tokenrole_getroles()</em> function will return the user roles for the \$token. Otherwise, it will return a negative value indicating
+		the error: -1 invalid token, -2 expired token.</p>
+		
+		<h3>For testing purpose</h3>
+		
+		<p><strong>Warning:</strong> Do enable the <em>gettoken</em> feature only for testing purpose.</p>
+		<p>Use this URI !gettoken to get the current logged in user's access token. The main system will respond with the token similar to the following:</p>
+		
+		<p><strong><em>{\"status\":1,\"token\":\"foFeQDmrnZCdJXjTZvlXH23YSdSec3MrIRdUupnc6MtRQ2BH0cKiU9lebjIXwrxj\"}</em></strong></p>",
+
+		array(
+			'!getroles' => l(t("tokenrole/getroles/[user-access-token]"), "tokenrole/getroles/"),
+			'!gettoken' => l("tokenrole/gettoken", "tokenrole/gettoken"),
+			'!authenticate' => l(t("tokenrole/authenticate/[username]/[password]"), "tokenrole/authenticate/"),
+			'!textformat' => l(t("Text Format"), "admin/config/content/formats"),
+			'!settings' => l(t("Token-Role Access Control settings"), "admin/config/services/tokenrole"),
+			'!image' => '<img src="/' . drupal_get_path('module', 'tokenrole') . '/tokenrole-diagram.png" />'
+		)
+	);
+}
+
+/**
+ * Implements hook_form().
+ */
+function tokenrole_settings_form($form, &$form_state)
+{
+	$form['tokenrole_validity_period'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Token validity period'),
+		'#description' => t('Enter the token validity period in seconds.'),
+		'#required' => TRUE,
+		'#default_value' => variable_get('tokenrole_validity_period', 3600),
+	);
+
+	$form['tokenrole_excluded_roles'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Excluded roles'),
+		'#description' => t('Enter the roles to be excluded from the sub-system. Separate them with commas.'),
+		'#default_value' => variable_get('tokenrole_excluded_roles', ''),
+	);
+
+	$form['tokenrole_role_prefix'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Role prefix'),
+		'#description' => t('Enter the prefix where only the roles with the prefix will be elected. The prefix itself will be truncated from the roles.'),
+		'#default_value' => variable_get('tokenrole_role_prefix', ''),
+	);
+
+	return system_settings_form($form);
+}
+
+// The crypto_rand_secure() and getToken() functions were
+// taken from the following source:
+// http://stackoverflow.com/a/13733588/4434331
+// NOTE: If the codes happen to violate any law then they
+// should be removed and replaced with a better one.
+
+function tokenrole_crypto_rand_secure($min, $max) {
+	$range = $max - $min;
+	if ($range < 0) return $min; // not so random...
+	$log = log($range, 2);
+	$bytes = (int) ($log / 8) + 1; // length in bytes
+	$bits = (int) $log + 1; // length in bits
+	$filter = (int) (1 << $bits) - 1; // set all lower bits to 1
+	do {
+		$rnd = hexdec(bin2hex(openssl_random_pseudo_bytes($bytes)));
+		$rnd = $rnd & $filter; // discard irrelevant bits
+	} while ($rnd >= $range);
+	return $min + $rnd;
+}
+
+function tokenrole_get_crypto_token($length){
+	$token = "";
+	$codeAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	$codeAlphabet.= "abcdefghijklmnopqrstuvwxyz";
+	$codeAlphabet.= "0123456789";
+	for($i=0;$i<$length;$i++){
+		$token .= $codeAlphabet[tokenrole_crypto_rand_secure(0,strlen($codeAlphabet))];
+	}
+	return $token;
+}
+// End of contrib code.
+
+function tokenrole_m_usertoken_create(&$data)
+{
+	unset($data['id']);
+	
+	$id = db_insert('tokenrole_usertoken')
+		->fields($data)
+		->execute();
+		
+	$data['id'] = $id;
+		
+	if (isset($id) && $id > 0)
+		return $id;
+		
+	return 0;
+}
+
+function tokenrole_m_usertoken_read_by_uid($uid)
+{
+	return db_select('tokenrole_usertoken')
+		->fields('tokenrole_usertoken')
+		->condition('uid', $uid)
+		->execute()
+		->fetchAssoc();
+}
+
+function tokenrole_m_usertoken_read_by_token($token)
+{
+	return db_select('tokenrole_usertoken')
+		->fields('tokenrole_usertoken')
+		->condition('token', $token)
+		->execute()
+		->fetchAssoc();
+}
+
+function tokenrole_m_usertoken_update($data)
+{
+	return db_update('tokenrole_usertoken')
+		->fields($data)
+		->condition('id', $data['id'])
+		->execute();
+}
+
+function tokenrole_m_usertoken_delete($id)
+{
+	return db_delete('tokenrole_usertoken')
+		->condition('id', $id)
+		->execute();
+}
+
+/**
+ * Generate a unique token string.
+ */
+function tokenrole_gentoken()
+{
+	for ($i = 0; $i < 10; $i++)
+	{
+		$token = tokenrole_get_crypto_token(64);
+	
+		$record = tokenrole_m_usertoken_read_by_token($token);
+		
+		if (!is_array($record))
+			return $token;
+	}
+	
+	return FALSE;
+}
+
+/**
+ * Get a user access token
+ */
+function tokenrole_gettoken($uid = 0)
+{
+	if ($uid <= 0)
+	{
+		global $user;
+		$uid = $user->uid;
+	}
+	
+	$token = '';
+	$validity = variable_get('tokenrole_validity_period', 3600);
+
+	$record = tokenrole_m_usertoken_read_by_uid($uid);
+	
+	if (!is_array($record))
+	{
+		$token = tokenrole_gentoken();
+		
+		if ($token === FALSE)
+			return FALSE;
+			
+		$data = array(
+			'uid' => $uid,
+			'token' => $token,
+			'valid_thru' => time() + $validity
+		);
+		
+		$id = tokenrole_m_usertoken_create($data);
+		
+		if ($id < 0)
+			return FALSE;
+	}
+	else
+	{
+		if ($record['valid_thru'] < time())
+		{
+			$token = tokenrole_gentoken();
+			
+			if ($token === FALSE)
+				return FALSE;
+			
+			$record['token'] = $token;
+			$record['valid_thru'] = time() + $validity;
+			
+			if (tokenrole_m_usertoken_update($record) <= 0)
+				return FALSE;
+		}
+		else
+			$token = $record['token'];
+	}
+
+	return $token;
+}
+
+function tokenrole_gettoken2()
+{
+	$token = tokenrole_gettoken();
+	
+	if ($token === FALSE)
+		echo json_encode(array('status' => 0, 'error' => -1, 'error_msg' => 'no token'));
+	else
+		echo json_encode(array('status' => 1, 'token' => $token));
+}
+
+function tokenrole_getuserid($token)
+{
+	$record = tokenrole_m_usertoken_read_by_token($token);
+	
+	if (!is_array($record))
+		return -1; // invalid token
+	
+	if ($record['valid_thru'] < time())
+		return -2; // token expired
+	
+	return $record['uid'];
+}
+
+function tokenrole_getroles($token)
+{
+	$record = tokenrole_m_usertoken_read_by_token($token);
+	
+	if (!is_array($record))
+		return -1;
+	
+	if ($record['valid_thru'] < time())
+		return -2;
+	
+	$u = user_load($record['uid']);
+	$ex_roles = variable_get('tokenrole_excluded_roles', '');
+	
+	if (strlen($ex_roles) > 0)
+	{
+		$ex_rs = explode(",", $ex_roles);
+		
+		foreach ($ex_rs as &$er)
+		{
+			$er = trim($er);
+		}
+		
+		$roles = array();
+		
+		foreach ($u->roles as $urole)
+		{
+			if (!in_array($urole, $ex_rs))
+				$roles[] = $urole;
+		}
+	}
+	else
+		$roles = $u->roles;
+
+	$prefix = variable_get('tokenrole_role_prefix', '');
+	$lprefix = strlen($prefix);
+	
+	if ($lprefix > 0)
+	{
+		$t_roles = array();
+		
+		foreach ($roles as $urole)
+		{
+			if (strncmp($urole, $prefix, $lprefix) == 0)
+				$t_roles[] = trim(substr($urole, $lprefix));
+		}
+		
+		$roles = $t_roles;
+	}
+	
+	return $roles;
+}
+
+function tokenrole_getroles2($token)
+{
+	$roles = tokenrole_getroles($token);
+	
+	if (is_array($roles))
+		echo json_encode(array('status' => 1, 'roles' => $roles));
+	elseif ($roles == -1)	
+		echo json_encode(array('status' => 0, 'error' => -1, 'error_msg' => 'invalid token'));
+	elseif ($roles == -2)	
+		echo json_encode(array('status' => 0, 'error' => -2, 'error_msg' => 'token expired'));	
+}
+
+function tokenrole_authenticate($username, $password)
+{
+	if ($uid = user_authenticate($username, $password))
+	{
+		$token = tokenrole_gettoken($uid);
+		
+		echo json_encode(array(
+			'status' => 1, 
+			'token' => $token,
+			'roles' => tokenrole_getroles($token, FALSE),
+			));
+		
+		return;
+	}
+	
+	echo json_encode(array('status' => 0, 'error' => -1, 'error_msg' => 'Authentication failed'));	
+}
+
+/**
+ * Implements hook_filter_info().
+ */
+function tokenrole_filter_info()
+{
+	$filters['filter_usertoken'] = array(
+		'title' => t('Place user access token string'),
+		'description' => t('Every instance of [user-access-token] in the input text will be replaced with the current user access token string by the Token-Role Access Control module.'),
+		'process callback'  => '_tokenrole_filter_usertoken_process',
+		'tips callback' => '_tokenrole_filter_usertoken_tips',
+	);
+	
+	return $filters;
+}
+
+/**
+ * usertoken filter process callback.
+ */
+function _tokenrole_filter_usertoken_process($text, $filter, $format)
+{
+	$token = tokenrole_gettoken();
+	
+	if ($token === FALSE)
+		$token = 'nil';
+		
+	return str_replace(t('[user-access-token]'), $token, $text);
+}
+
+/**
+ * Filter tips callback for usertoken filter.
+ */
+function _tokenrole_filter_usertoken_tips($filter, $format, $long = FALSE)
+{
+	if (!$long)
+		// This string will be shown in the content add/edit form.
+		return t('<em>[user-access-token]</em> replaced with the current user access token string.');
+	else
+		return t('Every instance of [user-access-token] in the input text will be replaced with the current user access token string by the Token-Role Access Control module. The token is meant to be passed to an external sub-system for access control.');
+}
+
